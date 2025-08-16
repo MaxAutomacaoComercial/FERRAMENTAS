@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Leitor de Código de Barras</title>
+  <meta name="theme-color" content="#111827" />
+  <style>
+    :root {
+      --bg: #0f172a; /* slate-900 */
+      --card: #111827; /* gray-900 */
+      --muted: #94a3b8; /* slate-400 */
+      --accent: #22c55e; /* green-500 */
+      --accent-2: #eab308; /* yellow-500 (CálculoFácil vibes) */
+      --danger: #ef4444; /* red-500 */
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      background: linear-gradient(180deg, #0b1220, #0f172a); color: #e5e7eb;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .app {
+      width: 100%; max-width: 720px; display: grid; gap: 12px;
+    }
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px; padding: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.25);
+    }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    header h1 { font-size: 1.1rem; margin: 0; letter-spacing: .3px; }
+    .badge { font-size: .75rem; color: #0f172a; background: var(--accent-2); padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+
+    .video-wrap { position: relative; border-radius: 16px; overflow: hidden; background: #000; aspect-ratio: 3/4; }
+    video { width: 100%; height: 100%; object-fit: cover; background: #000; }
+    canvas { display: none; }
+
+    .overlay {
+      position: absolute; inset: 0; pointer-events: none;
+      border: 2px dashed rgba(255,255,255,.25);
+      border-radius: 16px;
+    }
+    .overlay:after { /* mira central */
+      content: ""; position: absolute; inset: 40% 10% 40% 10%; border: 2px solid rgba(34,197,94,.7); border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,.25) inset;
+    }
+
+    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .controls .row { grid-column: 1 / -1; display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
+    select, button, input[type="text"] {
+      width: 100%; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12);
+      background: rgba(17,24,39,.6); color: #e5e7eb; outline: none; font-size: .95rem;
+    }
+    button { cursor: pointer; font-weight: 600; }
+    button.primary { background: linear-gradient(180deg, #22c55e, #16a34a); border: none; color: #052e12; }
+    button.secondary { background: linear-gradient(180deg, #1f2937, #111827); }
+    button.warning { background: linear-gradient(180deg, #f59e0b, #d97706); color: #0f172a; border: none; }
+    button.danger { background: linear-gradient(180deg, #ef4444, #b91c1c); border: none; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+
+    .result { display: grid; gap: 6px; }
+    .result strong { font-size: .95rem; color: #fff; }
+    .muted { color: var(--muted); font-size: .85rem; }
+
+    .grid-2 { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
+
+    .history { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    .history th, .history td { border-bottom: 1px solid rgba(255,255,255,.08); padding: 8px; text-align: left; }
+    .history tr:hover { background: rgba(255,255,255,.04); }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .75rem; font-weight: 700; background: rgba(34,197,94,.15); color: #86efac; }
+    .pill.err { background: rgba(239,68,68,.15); color: #fecaca; }
+
+    .footer { text-align: center; font-size: .8rem; color: var(--muted); padding-top: 8px; }
+    .link { color: #93c5fd; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="card">
+      <header>
+        <h1>📦 Leitor de Código de Barras</h1>
+        <span class="badge">Mobile Ready</span>
+      </header>
+      <p class="muted" style="margin:8px 0 0">Funciona melhor em <strong>https</strong> (ou <em>localhost</em>). Dê permissão para a câmera e aponte para o código.</p>
+    </div>
+
+    <div class="card">
+      <div class="video-wrap">
+        <video id="preview" autoplay playsinline muted></video>
+        <div class="overlay"></div>
+      </div>
+      <div class="controls" style="margin-top: 10px;">
+        <div class="row">
+          <select id="cameraSelect" title="Câmeras"></select>
+          <button id="toggleTorch" class="warning" disabled>🔦 Flash</button>
+        </div>
+        <button id="startBtn" class="primary">▶️ Iniciar</button>
+        <button id="stopBtn" class="danger" disabled>⏹️ Parar</button>
+      </div>
+    </div>
+
+    <div class="card result">
+      <div class="grid-2">
+        <div>
+          <strong>Última leitura</strong>
+          <div id="lastFormat" class="muted">—</div>
+          <div id="lastText" style="word-break: break-word; font-size: 1.1rem; margin-top: 4px;">—</div>
+        </div>
+        <div>
+          <strong>Ações</strong>
+          <div class="grid-2">
+            <button id="copyBtn" class="secondary" disabled>📋 Copiar</button>
+            <button id="clearHistory" class="secondary">🗑️ Limpar</button>
+          </div>
+          <div style="margin-top:8px">
+            <input id="manualInput" type="text" inputmode="numeric" placeholder="Ou digite o código manualmente" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <strong>Histórico</strong>
+      <table class="history" id="historyTable">
+        <thead>
+          <tr><th>Quando</th><th>Formato</th><th>Código</th><th>Status</th></tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+
+    <div class="footer">Dica: se aparecer erro de permissão, abra esta página via <span class="link">https</span> ou em <span class="link">localhost</span> e permita acesso à câmera.</div>
+  </div>
+
+  <!-- ZXing: leitor robusto que funciona no mobile -->
+  <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
+  <script src="https://unpkg.com/@zxing/browser@0.1.5"></script>
+
+  <script>
+    (() => {
+      const video = document.getElementById('preview');
+      const cameraSelect = document.getElementById('cameraSelect');
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const torchBtn = document.getElementById('toggleTorch');
+      const copyBtn = document.getElementById('copyBtn');
+      const clearHistoryBtn = document.getElementById('clearHistory');
+      const manualInput = document.getElementById('manualInput');
+      const lastFormat = document.getElementById('lastFormat');
+      const lastText = document.getElementById('lastText');
+      const historyBody = document.getElementById('historyBody');
+
+      let controls = null; // para parar o stream
+      let reader = null;   // ZXing reader
+      let currentTrack = null; // MediaStreamTrack para flash
+
+      const SUPPORTS_VIBRATION = 'vibrate' in navigator;
+
+      function beep() {
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'sine'; o.frequency.setValueAtTime(880, ctx.currentTime);
+          g.gain.setValueAtTime(0.001, ctx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.1, ctx.currentTime + 0.01);
+          o.connect(g); g.connect(ctx.destination); o.start();
+          setTimeout(()=>{g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05); o.stop(ctx.currentTime + 0.06);}, 120);
+        } catch(e) { /* silencioso */ }
+      }
+
+      function addHistory({text, format, ok}) {
+        const tr = document.createElement('tr');
+        const when = new Date().toLocaleString();
+        tr.innerHTML = `<td>${when}</td><td>${format || '—'}</td><td style="word-break:break-word">${(text||'—')}</td><td><span class="pill ${ok? '': 'err'}">${ok? 'OK':'Manual'}</span></td>`;
+        historyBody.prepend(tr);
+      }
+
+      function setLast(text, format) {
+        lastText.textContent = text || '—';
+        lastFormat.textContent = format ? `Formato: ${format}` : '—';
+        copyBtn.disabled = !text;
+      }
+
+      async function listCameras() {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videos = devices.filter(d => d.kind === 'videoinput');
+        cameraSelect.innerHTML = '';
+        videos.forEach((cam, i) => {
+          const opt = document.createElement('option');
+          opt.value = cam.deviceId;
+          opt.textContent = cam.label || `Câmera ${i+1}`;
+          cameraSelect.appendChild(opt);
+        });
+        if (!videos.length) {
+          const opt = document.createElement('option');
+          opt.textContent = 'Nenhuma câmera encontrada';
+          cameraSelect.appendChild(opt);
+        }
+      }
+
+      async function start() {
+        stop(); // garante reset
+        const deviceId = cameraSelect.value || undefined;
+
+        // Preferir câmera traseira
+        const constraints = deviceId ? { video: { deviceId } } : { video: { facingMode: { ideal: 'environment' } } };
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          video.srcObject = stream;
+          currentTrack = stream.getVideoTracks()[0];
+          torchBtn.disabled = !currentTrack.getCapabilities || !currentTrack.getCapabilities().torch;
+
+          // ZXing setup
+          reader = new ZXing.BrowserMultiFormatReader();
+          // formatos comuns em embalagens
+          const hints = new Map();
+          const { BarcodeFormat, DecodeHintType } = ZXing;
+          hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+            BarcodeFormat.CODE_128,
+            BarcodeFormat.EAN_13,
+            BarcodeFormat.EAN_8,
+            BarcodeFormat.UPC_A,
+            BarcodeFormat.UPC_E,
+            BarcodeFormat.ITF,
+            BarcodeFormat.CODE_39,
+          ]);
+          reader.defaultOptions = { hints };
+
+          controls = await reader.decodeFromVideoDevice(
+            deviceId || null,
+            video,
+            (result, err, ctrl) => {
+              if (result) {
+                const text = result.getText();
+                const format = result.getBarcodeFormat();
+                setLast(text, format);
+                addHistory({ text, format, ok: true });
+                beep();
+                if (SUPPORTS_VIBRATION) navigator.vibrate(60);
+              }
+              // erros são frequentes durante o fluxo — ignorar
+            }
+          );
+
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+        } catch (e) {
+          console.error(e);
+          alert((e && e.message) ? e.message + "\n\nDica: abra via HTTPS (ou localhost) e permita a câmera." : 'Não foi possível acessar a câmera.');
+        }
+      }
+
+      function stop() {
+        try {
+          if (controls && controls.stop) controls.stop();
+          if (reader && reader.reset) reader.reset();
+        } catch(_) {}
+        if (video.srcObject) {
+          video.srcObject.getTracks().forEach(t => t.stop());
+          video.srcObject = null;
+        }
+        currentTrack = null;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        torchBtn.disabled = true;
+      }
+
+      async function toggleTorch() {
+        if (!currentTrack || !currentTrack.applyConstraints) return;
+        const caps = currentTrack.getCapabilities();
+        if (!caps || !caps.torch) return;
+        const settings = currentTrack.getSettings();
+        const isOn = settings.torch === true;
+        try {
+          await currentTrack.applyConstraints({ advanced: [{ torch: !isOn }] });
+        } catch (e) {
+          console.warn('Torch não suportado: ', e);
+        }
+      }
+
+      copyBtn.addEventListener('click', async () => {
+        const text = lastText.textContent.trim();
+        if (!text || text === '—') return;
+        try { await navigator.clipboard.writeText(text); copyBtn.textContent = '✅ Copiado'; setTimeout(()=>copyBtn.textContent='📋 Copiar', 1200);} catch(_){}
+      });
+
+      clearHistoryBtn.addEventListener('click', () => {
+        historyBody.innerHTML = '';
+        setLast('', '');
+      });
+
+      manualInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const val = manualInput.value.trim();
+          if (!val) return;
+          setLast(val, 'Manual');
+          addHistory({ text: val, format: 'Manual', ok: false });
+          manualInput.value = '';
+          beep(); if (SUPPORTS_VIBRATION) navigator.vibrate(30);
+        }
+      });
+
+      startBtn.addEventListener('click', start);
+      stopBtn.addEventListener('click', stop);
+      torchBtn.addEventListener('click', toggleTorch);
+      cameraSelect.addEventListener('change', start);
+
+      // Inicialização
+      if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
+        alert('Este navegador não suporta captura de câmera. Tente atualizar o navegador ou usar Chrome/Edge/Safari.');
+      } else {
+        listCameras();
+        navigator.mediaDevices.addEventListener?.('devicechange', listCameras);
+      }
+
+      // iOS: garantir play inline
+      video.setAttribute('playsinline', 'true');
+    })();
+  </script>
+</body>
+</html>
